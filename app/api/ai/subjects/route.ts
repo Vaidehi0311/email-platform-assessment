@@ -1,11 +1,11 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "GEMINI_API_KEY is not configured" },
+      { error: "OPENAI_API_KEY is not configured" },
       { status: 500 }
     );
   }
@@ -32,26 +32,36 @@ export async function POST(request: Request) {
     );
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    generationConfig: { responseMimeType: "application/json" },
-  });
-
-  const prompt = `You are a SaaS email copywriter. From the email body below, write exactly 5 short, compelling subject lines for a SaaS marketing email.
-
-Return JSON only: {"subjects":["...","...","...","...","..."]}
-
-Email body:
-${body}`;
+  const openai = new OpenAI({ apiKey });
 
   try {
-    const result = await model.generateContent(prompt);
-    const parsed = JSON.parse(result.response.text()) as {
-      subjects?: unknown;
-    };
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            'You are a SaaS email copywriter. Return JSON only: {"subjects":["...","...","...","...","..."]} with exactly 5 short, compelling subject lines.',
+        },
+        {
+          role: "user",
+          content: `Write 5 SaaS-style email subject lines for this body:\n\n${body}`,
+        },
+      ],
+    });
 
+    const text = completion.choices[0]?.message?.content;
+    if (!text) {
+      return NextResponse.json(
+        { error: "Empty response from OpenAI" },
+        { status: 502 }
+      );
+    }
+
+    const parsed = JSON.parse(text) as { subjects?: unknown };
     const subjects = parsed.subjects;
+
     if (
       !Array.isArray(subjects) ||
       subjects.length !== 5 ||
